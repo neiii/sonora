@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Refresh Quick picks while keeping the other Home shelves steady until you leave the page. Failed refreshes show a notification.
+
 ## [0.40.0] - 2026-09-25
 
 ### Added
