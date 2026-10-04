@@ -273,7 +273,6 @@ detail-play-playlist = Çalma listesini çal
 # play button
 play-pause = Duraklat
 play-resume = Sürdür
-play-loading = Yükleniyor…
 play-shuffle = Karıştır
 
 # artist page

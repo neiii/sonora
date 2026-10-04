@@ -288,7 +288,6 @@ detail-play-playlist = 播放该列表
 # play button
 play-pause = 暂停
 play-resume = 继续播放
-play-loading = 加载中…
 play-shuffle = 随机播放
 
 # artist page

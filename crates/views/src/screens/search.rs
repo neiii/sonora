@@ -459,8 +459,7 @@ impl SearchView {
         let origin = match hit {
             Hit::Song(track) => {
                 let current = track.id.is_some() && track.id == self.playback_status.0;
-                let playing =
-                    current && matches!(self.playback_status.1, state::PlaybackState::Playing);
+                let playing = current && self.playback_status.1 == Some(true);
                 let track = track.clone();
                 let play: Play = Box::new(move |_, _, cx| {
                     me.update(cx, |this, cx| {
@@ -481,8 +480,7 @@ impl SearchView {
                 state::Origin::playlist(list.id.clone()).named(list.name.clone())
             }
         };
-        let playing =
-            self.playback.read(cx).playing_from(&origin) == Some(state::PlaybackState::Playing);
+        let playing = self.playback.read(cx).playing_from(&origin) == Some(true);
         let play: Play = Box::new(move |_, _, cx| {
             me.update(cx, |this, cx| {
                 this.playback

@@ -338,7 +338,6 @@ detail-play-playlist = Odtwórz playlistę
 # play button
 play-pause = Wstrzymaj
 play-resume = Wznów
-play-loading = Ładowanie…
 play-shuffle = Losowo
 
 # artist page

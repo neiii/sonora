@@ -36,6 +36,20 @@ const FIRST_SIZE: Size<Pixels> = size(px(920.), px(640.));
 const OPEN_COALESCE: Duration = Duration::from_millis(250);
 
 fn main() {
+    memory::tune();
+    if let Some(code) = webview::probed() {
+        exit(code);
+    }
+    // The Widevine host is this executable started again by the app. It must not claim the
+    // instance socket, write the app's log file or start a runtime or a window.
+    if let Some(module) = music::drm::hosted() {
+        logging::console();
+        if let Err(error) = music::drm::host(&module) {
+            log::error!("widevine: the cdm host failed: {error:#}");
+            exit(1);
+        }
+        return;
+    }
     logging::init();
 
     let args: Vec<String> = std::env::args()

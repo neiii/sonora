@@ -336,7 +336,6 @@ detail-play-playlist = Слушать плейлист
 # play button
 play-pause = Пауза
 play-resume = Продолжить
-play-loading = Загрузка…
 play-shuffle = Перемешать
 
 # artist page

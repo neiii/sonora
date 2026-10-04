@@ -113,6 +113,20 @@ impl Screen {
         Self::ALL.into_iter().find(|screen| screen.id() == id)
     }
 
+    /// Whether the screen shows account library data, and so stays empty in guest mode.
+    pub fn needs_account(self) -> bool {
+        match self {
+            Self::Home => false,
+            Self::Search => false,
+            Self::History => false,
+            Self::Songs => true,
+            Self::Albums => true,
+            Self::Playlists => true,
+            Self::Artists => true,
+            Self::Imported => false,
+        }
+    }
+
     pub fn destination(self) -> Destination {
         match self {
             Self::Home => Destination::Home,
@@ -240,6 +254,11 @@ pub fn trail(cx: &App) -> Entity<Navigation> {
 
 pub fn navigate(destination: Destination, cx: &mut App) {
     trail(cx).update(cx, |navigation, cx| navigation.go(destination, cx));
+}
+
+/// Replaces the current destination so Back and Forward do not revisit a page that disappeared.
+pub fn replace(destination: Destination, cx: &mut App) {
+    trail(cx).update(cx, |navigation, cx| navigation.replace(destination, cx));
 }
 
 pub fn back(cx: &mut App) {

@@ -30,12 +30,16 @@ pub mod trouble;
 pub mod youtube;
 
 use std::collections::HashMap;
+use std::num::NonZero;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use time::format_description::well_known::Iso8601;
+use time::parsing::Parsed;
+use time::{Month, OffsetDateTime};
 
 pub use equalizer::Equalizer;
 pub use models::{
@@ -155,12 +159,6 @@ pub trait MusicApi: Send + Sync {
     }
     async fn track(&self, track_id: &str) -> Result<Track>;
 
-    /// Reads an arbitrary file on disk as a track, for a provider whose tracks are files. Used
-    /// by file-association opens, which may point outside any scanned folder.
-    async fn track_from_path(&self, _path: &Path) -> Result<Track> {
-        anyhow::bail!("cannot open arbitrary files")
-    }
-
     /// Delete a track file from disk (only for local provider)
     async fn delete_track_file(&self, _track_id: &str) -> Result<()> {
         anyhow::bail!("this provider does not support file deletion")
@@ -180,6 +178,19 @@ pub trait MusicApi: Send + Sync {
     async fn played(&self, _track_id: &str, _at: SystemTime) -> Result<()> {
         Ok(())
     }
+
+    /// Tells the provider a track has started playing, so the play counts on the provider's
+    /// own side. A provider that keeps no history keeps the default and makes no request.
+    async fn report_play(&self, _track_id: &str) -> Result<()> {
+        Ok(())
+    }
+
+    /// The tracks the account has recently played, newest first, across every device. A provider
+    /// that keeps no cross-device history keeps the default and answers with nothing.
+    async fn recently_played(&self) -> Result<Vec<Track>> {
+        Ok(Vec::new())
+    }
+
     async fn playlists(&self) -> Result<Vec<Playlist>>;
     /// Changes the provider's own pin for `uri`, one of the uris `pin_targets` lists or
     /// `pin_uri` builds.
@@ -364,6 +375,11 @@ pub enum PlaybackEvent {
         id: Option<String>,
         duration: Duration,
     },
+    /// The whole of the current track has arrived, so fetching the next one takes nothing from
+    /// it. Engines that cannot tell never send this.
+    Downloaded {
+        id: Option<String>,
+    },
     Ended {
         id: Option<String>,
     },
@@ -389,6 +405,7 @@ impl PlaybackEvent {
             | Self::Position { id, .. }
             | Self::Seeked { id, .. }
             | Self::Length { id, .. }
+            | Self::Downloaded { id }
             | Self::Ended { id, .. }
             | Self::Unavailable { id, .. }
             | Self::Throttled { id } => id.as_deref(),
@@ -620,6 +637,17 @@ pub trait MusicProvider: Send + Sync {
     /// everything again. Only a provider that scans files has anything to forget, and only a
     /// rescan the user asked for should ask it to.
     fn forget_scan(&self) {}
+    /// A factory for the provider's playback engine that can work without sign-in and scan,
+    /// so playback can start before the library has loaded. Only for a provider whose tracks
+    /// are files.
+    fn playback_factory(&self) -> Option<Arc<dyn PlaybackFactory>> {
+        None
+    }
+    /// Reads an arbitrary file on disk as a track, for a provider whose tracks are files. Used
+    /// by file-association opens, which may point outside any scanned folder.
+    fn track_from_path(&self, _path: &Path) -> Option<Track> {
+        None
+    }
     fn sign_in_options(&self) -> Vec<SignIn>;
     fn stored(&self) -> bool;
     /// Whether what is stored is an anonymous session rather than an account, so a caller
@@ -665,5 +693,75 @@ pub trait MusicProvider: Send + Sync {
     /// sign-in, and the app offers no `Secret` option for it.
     fn web_sign_in(&self) -> Option<WebSignIn> {
         None
+    }
+}
+
+/// Leniently convert an ISO8601 timestamp to unix epoch seconds. Accepts only
+/// the date portion, date and time portions, or full date and time with offset.
+pub fn iso_8601_to_epoch(value: Option<&str>) -> Option<i64> {
+    let time_str = value?.as_bytes();
+    let defaults = Parsed::new()
+        .with_month(Month::January)
+        .and_then(|d| d.with_day(NonZero::<u8>::new(1)?))
+        .and_then(|d| d.with_hour_24(0))
+        .and_then(|d| d.with_minute(0))
+        .and_then(|d| d.with_second(0))
+        .and_then(|d| d.with_subsecond(0))
+        .and_then(|d| d.with_offset_hour(0))
+        .and_then(|d| d.with_offset_minute_signed(0))
+        .and_then(|d| d.with_offset_second_signed(0))?;
+    let timestamp = OffsetDateTime::parse_with_defaults(time_str, &Iso8601::PARSING, defaults)
+        .ok()?
+        .unix_timestamp();
+    Some(timestamp)
+}
+
+#[cfg(test)]
+mod tests {
+    use time::macros::datetime;
+
+    use super::*;
+
+    #[test]
+    fn iso_8601_to_epoch_parses_correctly() {
+        // None and malformed input
+        assert_eq!(iso_8601_to_epoch(None), None);
+        assert_eq!(iso_8601_to_epoch(Some("")), None);
+        assert_eq!(iso_8601_to_epoch(Some("malformed")), None);
+
+        // Basic epoch format
+        assert_eq!(iso_8601_to_epoch(Some("1970-01-01")), Some(0));
+        assert_eq!(iso_8601_to_epoch(Some("1970-01-01T00:00:00")), Some(0));
+        assert_eq!(iso_8601_to_epoch(Some("1970-01-01T00:00:00Z")), Some(0));
+        assert_eq!(
+            iso_8601_to_epoch(Some("1970-01-01T00:00:00+00:00")),
+            Some(0)
+        );
+
+        // A specific date with/without time/offset
+        assert_eq!(
+            iso_8601_to_epoch(Some("2021-03-20")),
+            Some(datetime!(2021-03-20 00:00:00 UTC).unix_timestamp())
+        );
+        assert_eq!(
+            iso_8601_to_epoch(Some("2021-03-20T13:45:07")),
+            Some(datetime!(2021-03-20 13:45:07 UTC).unix_timestamp())
+        );
+        assert_eq!(
+            iso_8601_to_epoch(Some("2021-03-20T13:45:07.123456")),
+            Some(datetime!(2021-03-20 13:45:07 UTC).unix_timestamp())
+        );
+        assert_eq!(
+            iso_8601_to_epoch(Some("2021-03-20T13:45:07Z")),
+            Some(datetime!(2021-03-20 13:45:07 UTC).unix_timestamp())
+        );
+        assert_eq!(
+            iso_8601_to_epoch(Some("2021-03-20T13:45:07+00:00")),
+            Some(datetime!(2021-03-20 13:45:07 UTC).unix_timestamp())
+        );
+        assert_eq!(
+            iso_8601_to_epoch(Some("2021-03-20T10:45:07-03:00")),
+            Some(datetime!(2021-03-20 13:45:07 UTC).unix_timestamp())
+        );
     }
 }

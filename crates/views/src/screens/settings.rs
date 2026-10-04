@@ -141,6 +141,7 @@ enum Slot {
     Blur,
     Corners,
     FullscreenControlsAutohide,
+    OsFullscreen,
     PanelLyricsSize,
     FullscreenLyricsSize,
     BlurLyrics,
@@ -585,6 +586,7 @@ impl SettingsView {
             )
             .chain([
                 Slot::FullscreenControlsAutohide,
+                Slot::OsFullscreen,
                 Slot::Title("settings-group-lyrics"),
                 Slot::PanelLyricsSize,
                 Slot::FullscreenLyricsSize,
@@ -705,6 +707,10 @@ impl SettingsView {
             Slot::FullscreenControlsAutohide => (
                 t!("settings-fullscreen-controls-autohide"),
                 t!("settings-fullscreen-controls-autohide-detail"),
+            ),
+            Slot::OsFullscreen => (
+                t!("settings-os-fullscreen"),
+                t!("settings-os-fullscreen-detail"),
             ),
             Slot::PanelLyricsSize => (
                 i18n::lookup("settings-panel-lyrics-size", None),
@@ -946,6 +952,7 @@ impl SettingsView {
             Slot::Blur => self.blur_row(cx).element,
             Slot::Corners => self.corners_row(cx).element,
             Slot::FullscreenControlsAutohide => self.fullscreen_controls_autohide_row(cx).element,
+            Slot::OsFullscreen => self.os_fullscreen_row(cx).element,
             Slot::PanelLyricsSize => self.panel_lyrics_size_row(cx).element,
             Slot::FullscreenLyricsSize => self.fullscreen_lyrics_size_row(cx).element,
             Slot::BlurLyrics => self.blur_lyrics_row(cx).element,
@@ -1042,17 +1049,21 @@ impl SettingsView {
         let small = theme.text(Text::Small);
         let chosen = Screen::from_id(self.settings.read(cx).startup()).unwrap_or(Screen::Home);
         let current = i18n::lookup(chosen.key(), None);
+        let guest = !self.session.read(cx).authenticated();
 
         let picker = Picker::new(STARTUP, &self.popovers, current)
             .width(Picker::NARROW)
             .items(Screen::ALL.map(|screen| {
-                MenuItem::new(screen.id(), i18n::lookup(screen.key(), None))
-                    .selected(screen == chosen)
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                let item = MenuItem::new(screen.id(), i18n::lookup(screen.key(), None))
+                    .selected(screen == chosen);
+                match guest && screen.needs_account() {
+                    true => item.disabled().tooltip("settings-startup-no-guest"),
+                    false => item.on_click(cx.listener(move |this, _, _, cx| {
                         this.settings
                             .update(cx, |settings, cx| settings.set_startup(screen.id(), cx));
                         cx.notify();
-                    }))
+                    })),
+                }
             }));
 
         self.row(
@@ -1602,15 +1613,26 @@ impl SettingsView {
     fn profile(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = *cx.theme();
         let muted = theme.muted_foreground;
+        // The service the account belongs to, named next to the region so the card says which
+        // provider it is rather than a bare country code.
+        let provider = self
+            .session
+            .read(cx)
+            .providers()
+            .find(|info| info.active)
+            .map(|info| info.name.to_string());
 
         div()
             .flex()
             .items_center()
             .gap_4()
             .child(match self.session.read(cx).state() {
-                SessionState::SignedIn(profile) => {
-                    Initials::new(profile.display_name.clone(), px(64.)).into_any_element()
-                }
+                SessionState::SignedIn(profile) => match &profile.avatar {
+                    Some(avatar) => Avatar::new(Some(avatar.clone()))
+                        .size(px(64.))
+                        .into_any_element(),
+                    None => Initials::new(profile.display_name.clone(), px(64.)).into_any_element(),
+                },
                 _ => Skeleton::new().size(px(64.)).circle().into_any_element(),
             })
             .child(
@@ -1628,7 +1650,14 @@ impl SettingsView {
                     })
                     .child(match self.session.read(cx).state() {
                         SessionState::SignedIn(profile) => div()
-                            .child(profile.id.clone())
+                            .child(match &provider {
+                                Some(provider) => t!(
+                                    "settings-profile-account",
+                                    provider = provider,
+                                    account = &profile.id
+                                ),
+                                None => profile.id.clone().into(),
+                            })
                             .text_color(muted)
                             .text_size(theme.text(Text::Small))
                             .into_any_element(),
@@ -1671,7 +1700,7 @@ impl SettingsView {
                 match adaptive
                     && !matches!(kind, ThemeKind::System | ThemeKind::Dark | ThemeKind::Light)
                 {
-                    true => item.disabled(),
+                    true => item.disabled().tooltip("settings-theme-unavailable"),
                     false => item.on_click(cx.listener(move |this, _, _, cx| {
                         let overrides = this.settings.update(cx, |settings, cx| {
                             settings.set_theme(kind.id(), cx);
@@ -1690,7 +1719,7 @@ impl SettingsView {
         items.extend(custom.into_iter().map(|(id, name)| {
             let item = MenuItem::new(format!("custom-theme:{id}"), name).selected(selected == id);
             match adaptive {
-                true => item.disabled(),
+                true => item.disabled().tooltip("settings-theme-unavailable"),
                 false => item.on_click(cx.listener(move |this, _, _, cx| {
                     let overrides = this.settings.update(cx, |settings, cx| {
                         settings.set_theme(id.clone(), cx);
@@ -2002,6 +2031,26 @@ impl SettingsView {
             muted,
             small,
             picker.into_any_element(),
+        )
+    }
+
+    fn os_fullscreen_row(&self, cx: &mut Context<Self>) -> Setting {
+        let theme = *cx.theme();
+        let muted = theme.muted_foreground;
+        let small = theme.text(Text::Small);
+        let on = self.settings.read(cx).os_fullscreen();
+
+        self.row(
+            t!("settings-os-fullscreen"),
+            t!("settings-os-fullscreen-detail"),
+            muted,
+            small,
+            Switch::new("os-fullscreen", on)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.settings
+                        .update(cx, |settings, cx| settings.set_os_fullscreen(!on, cx));
+                }))
+                .into_any_element(),
         )
     }
 
@@ -4575,6 +4624,7 @@ impl Render for SettingsHeader {
                     height,
                     HEADER_BLUR,
                     theme.background,
+                    None,
                     window,
                 ))
             })

@@ -356,6 +356,7 @@ struct Appearance {
     battery_saver: String,
     theme_overrides: ThemeOverrides,
     fullscreen_controls_autohide: String,
+    os_fullscreen: bool,
 }
 
 /// A valid custom theme, identified by its filename stem.
@@ -487,6 +488,7 @@ struct StateValues {
     sidebar_right_width: f32,
     sidebar_right_open: bool,
     sidebar_right_tab: SideTab,
+    fullscreen_tab: Option<SideTab>,
     shuffle: bool,
     repeat: Repeat,
     radio: bool,
@@ -514,6 +516,7 @@ impl Default for StateValues {
             sidebar_right_width: DEFAULT_SIDEBAR_RIGHT_WIDTH,
             sidebar_right_open: false,
             sidebar_right_tab: SideTab::Queue,
+            fullscreen_tab: Some(SideTab::Lyrics),
             shuffle: false,
             repeat: Repeat::Off,
             radio: false,
@@ -596,7 +599,9 @@ impl Default for Appearance {
             transparency: ui::BACKDROP_TRANSPARENCY,
             #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             server_side_decorations: true,
-            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "freebsd"))]
+            #[cfg(target_os = "windows")]
+            window_rounding: Rounding::Rounded.id().to_owned(),
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             window_rounding: Rounding::Square.id().to_owned(),
             window_controls: true,
             #[cfg(not(target_os = "macos"))]
@@ -607,6 +612,7 @@ impl Default for Appearance {
             battery_saver: Saver::default().id().to_owned(),
             theme_overrides: ThemeOverrides::default(),
             fullscreen_controls_autohide: FullscreenControlsAutohide::Automatic.id().to_owned(),
+            os_fullscreen: false,
         }
     }
 }
@@ -655,7 +661,7 @@ impl AppSettings {
                 (None, false)
             }
         };
-        let parsed = bytes.map(|bytes| (serde_json::from_slice::<Values>(&bytes), bytes));
+        let parsed = bytes.map(|bytes| (serde_json::from_slice::<Values>(json(&bytes)), bytes));
         let (values, writable, disk, broken) = match parsed {
             Some((Ok(values), bytes)) => (values, writable, Some(bytes), None),
             Some((Err(error), _)) => {
@@ -876,6 +882,12 @@ impl AppSettings {
         self.state.sidebar_right_tab
     }
 
+    /// The panel the fullscreen view last showed beside the cover, or `None` when it showed the
+    /// artwork alone.
+    pub fn fullscreen_tab(&self) -> Option<SideTab> {
+        self.state.fullscreen_tab
+    }
+
     pub fn shuffle(&self) -> bool {
         self.state.shuffle
     }
@@ -974,6 +986,11 @@ impl AppSettings {
 
     pub fn blur_window(&self) -> bool {
         self.values.appearance.blur_window
+    }
+
+    /// Whether opening the fullscreen view also puts the window into OS fullscreen.
+    pub fn os_fullscreen(&self) -> bool {
+        self.values.appearance.os_fullscreen
     }
 
     pub fn stillness(&self) -> Stillness {
@@ -1419,6 +1436,14 @@ impl AppSettings {
         self.schedule_state_save(cx);
     }
 
+    pub fn set_fullscreen_tab(&mut self, tab: Option<SideTab>, cx: &mut Context<Self>) {
+        if self.state.fullscreen_tab == tab {
+            return;
+        }
+        self.state.fullscreen_tab = tab;
+        self.schedule_state_save(cx);
+    }
+
     pub fn set_shuffle(&mut self, shuffle: bool, cx: &mut Context<Self>) {
         self.state.shuffle = shuffle;
         self.schedule_state_save(cx);
@@ -1606,6 +1631,11 @@ impl AppSettings {
 
     pub fn set_blur_window(&mut self, blur: bool, cx: &mut Context<Self>) {
         self.values.appearance.blur_window = blur;
+        self.schedule_save(cx);
+    }
+
+    pub fn set_os_fullscreen(&mut self, value: bool, cx: &mut Context<Self>) {
+        self.values.appearance.os_fullscreen = value;
         self.schedule_save(cx);
     }
 
@@ -1968,7 +1998,7 @@ impl AppSettings {
             self.broken = None;
             return SettingsReload::Unchanged;
         }
-        let values = match serde_json::from_slice::<Values>(&bytes) {
+        let values = match serde_json::from_slice::<Values>(json(&bytes)) {
             Ok(values) => values,
             Err(error) => {
                 log::warn!("settings: cannot parse {}: {error}", self.path.display());
@@ -2151,9 +2181,15 @@ fn load_themes(directory: &Path, previous: &[CustomTheme]) -> LoadedThemes {
     LoadedThemes { themes, retry }
 }
 
+/// The JSON in a file without the UTF-8 byte order mark that Notepad and PowerShell can put in
+/// front of it on Windows, which serde_json rejects as an unexpected character.
+fn json(bytes: &[u8]) -> &[u8] {
+    bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes)
+}
+
 /// Parses one theme file and assigns the identifier derived from its path.
 fn parse_theme(bytes: &[u8], path: &Path, id: &str) -> Result<CustomTheme> {
-    let value: serde_json::Value = serde_json::from_slice(bytes)
+    let value: serde_json::Value = serde_json::from_slice(json(bytes))
         .with_context(|| format!("cannot parse {}", path.display()))?;
     let object = value
         .as_object()

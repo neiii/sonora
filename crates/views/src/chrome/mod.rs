@@ -23,19 +23,18 @@ use gpui::{App, Div, Entity, Global, Pixels, Window, div};
 use state::AppSettings;
 use ui::{ActiveTheme as _, MIN_CONTENT, Room, eyebrow};
 
-/// The window's own corner radius, or `None` when it shouldn't visibly round: server-side
-/// decorations put the compositor in charge of the frame, and `Rounding::Square` is the
-/// explicit off state. Windows applies its rounding through DWM instead (see
-/// `state::apply_window_rounding`), so this only matters for Linux/FreeBSD chrome that
-/// rounds its own corners to match — GPUI has no way to clip a subtree to a rounded parent.
+/// The radius every element touching a corner of the window rounds that corner with, or `None`
+/// under server-side decorations or `Rounding::Square`. It never exceeds half the title bar's
+/// height, since GPUI clamps a quad's radius to half its shorter side and the title bar would
+/// otherwise draw a tighter corner than the rest of the chrome.
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-pub(crate) fn window_radius(settings: &AppSettings) -> Option<Pixels> {
-    if settings.server_side_decorations() {
+pub(crate) fn window_radius(settings: &AppSettings, cx: &App, window: &Window) -> Option<Pixels> {
+    if window.is_fullscreen() || settings.server_side_decorations() {
         return None;
     }
     match settings.window_rounding() {
         ui::Rounding::Square => None,
-        rounding => Some(rounding.radius()),
+        rounding => Some(rounding.radius().min(cx.theme().metrics.title_bar / 2.)),
     }
 }
 
@@ -59,6 +58,9 @@ pub(crate) fn cap(min: Pixels, max: Pixels, keep: Pixels, window: &Window) -> Pi
 pub(crate) struct Chrome {
     sidebar_left: Pixels,
     sidebar_right: Pixels,
+    /// The width the left sidebar leaves free for an open right sidebar, counted even while
+    /// the window is too narrow to show it.
+    reserved_right: Pixels,
 }
 
 struct Installed(Entity<Chrome>);
@@ -74,10 +76,11 @@ impl Chrome {
         cx.global::<Installed>().0.clone()
     }
 
-    pub(crate) fn publish(left: Pixels, right: Pixels, cx: &mut App) {
+    pub(crate) fn publish(left: Pixels, right: Pixels, reserved_right: Pixels, cx: &mut App) {
         let next = Self {
             sidebar_left: left,
             sidebar_right: right,
+            reserved_right,
         };
         let chrome = Self::entity(cx);
         chrome.update(cx, |chrome, cx| {
@@ -94,8 +97,8 @@ impl Chrome {
             .unwrap_or_default()
     }
 
-    pub fn sidebar_right(cx: &App) -> Pixels {
-        Self::get(cx).sidebar_right
+    pub fn reserved_right(cx: &App) -> Pixels {
+        Self::get(cx).reserved_right
     }
 
     pub fn content(window: &Window, cx: &App) -> Pixels {

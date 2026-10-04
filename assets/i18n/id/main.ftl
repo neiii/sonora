@@ -288,7 +288,6 @@ detail-play-playlist = Putar playlist
 # play button
 play-pause = Jeda
 play-resume = Lanjutkan
-play-loading = Memuat…
 play-shuffle = Acak
 
 # artist page

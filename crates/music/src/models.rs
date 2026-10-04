@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 pub struct UserProfile {
     pub id: String,
     pub display_name: String,
+    /// A picture for the account, when the provider hands one out. `None` falls back to the
+    /// initials of `display_name`.
+    pub avatar: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -216,7 +219,8 @@ pub struct GenreDetail {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct TrackTags {
     pub title: String,
-    pub artist: String,
+    /// The track's artists, one name each, in the order the file credits them.
+    pub artists: Vec<String>,
     pub album: String,
     pub album_artist: String,
     pub track_number: String,

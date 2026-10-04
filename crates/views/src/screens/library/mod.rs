@@ -19,8 +19,8 @@ use i18n::t;
 use music::{Shape, Track};
 use router::{Destination, LibraryTab, navigate};
 use state::{
-    Addition, AppSettings, Library, LibraryPart, LibraryState, Origin, Playback, PlaybackState,
-    Scan, Shelf, Sonora,
+    Addition, AppSettings, Library, LibraryPart, LibraryState, Origin, Playback, Scan, Shelf,
+    Sonora,
 };
 use ui::{
     ActiveTheme as _, Button, Card, Deck, FilterChange, LEADING, Mode, Pinnable, Popovers, Popup,
@@ -950,8 +950,8 @@ impl LibraryView {
         let playable = track.playable;
         let pressed = (listing.clone(), self.playback.clone());
         let played = pressed.clone();
-        let state = listing.read(cx).delegate().source().now_playing(row, cx);
-        let playing = matches!(state, Some(PlaybackState::Playing));
+        let current = listing.read(cx).delegate().source().now_playing(row, cx);
+        let playing = current == Some(true);
         let artists = cells::artist_links(
             SharedString::from(format!("library-track-artist-{display}")),
             track.artist_refs.clone(),
@@ -988,14 +988,9 @@ impl LibraryView {
                     });
                 })
                 .when(playable, move |card| {
-                    card.play(playing, move |_, _, cx| match &state {
-                        Some(PlaybackState::Playing) => {
-                            played.1.update(cx, |playback, cx| playback.pause(cx))
-                        }
-                        Some(PlaybackState::Paused) => {
-                            played.1.update(cx, |playback, cx| playback.resume(cx))
-                        }
-                        _ => page::play(&played.0, &played.1, display, cx),
+                    card.play(playing, move |_, _, cx| match current {
+                        Some(_) => played.1.update(cx, |playback, cx| playback.toggle_play(cx)),
+                        None => page::play(&played.0, &played.1, display, cx),
                     })
                     .press(move |_, _, cx| page::play(&pressed.0, &pressed.1, display, cx))
                 })

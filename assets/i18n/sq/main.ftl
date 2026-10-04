@@ -324,7 +324,6 @@ detail-play-playlist = Luaj listën e luajtjes
 # play button
 play-pause = Pauzë
 play-resume = Vazhdo
-play-loading = Duke u ngarkuar…
 play-shuffle = Përziej
 
 # artist page

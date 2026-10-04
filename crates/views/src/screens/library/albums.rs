@@ -124,13 +124,13 @@ impl AlbumSource {
 
     fn index_cell(&self, cell: &Cell<AlbumField>, album: &Album, cx: &App) -> AnyElement {
         let origin = Origin::album(album.id.clone()).named(album.name.clone());
-        let state = self.playback.read(cx).playing_from(&origin);
+        let playing = self.playback.read(cx).playing_from(&origin);
         let played = origin.clone();
-        let press = cells::toggle(&self.playback, state.clone(), move |playback, cx| {
+        let press = cells::toggle(&self.playback, playing, move |playback, cx| {
             playback.play_origin(played.clone(), cx)
         });
 
-        cells::index(cell, state, true, None, None, press, cx)
+        cells::index(cell, playing, true, None, None, press, cx)
     }
 
     pub(super) fn at(&self, row: usize, cx: &App) -> Option<Album> {

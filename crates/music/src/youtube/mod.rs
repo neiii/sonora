@@ -5,6 +5,7 @@ mod genres;
 mod lyrics;
 mod playback;
 mod radio;
+mod segments;
 mod subscriptions;
 mod wire;
 
@@ -143,6 +144,7 @@ impl YouTubeProvider {
             profile: UserProfile {
                 id: GUEST_ID.to_string(),
                 display_name: "YouTube Music".to_string(),
+                avatar: None,
             },
             api: Arc::new(YouTubeClient::new(api.clone())),
             playback: Arc::new(Factory::new(api)),
